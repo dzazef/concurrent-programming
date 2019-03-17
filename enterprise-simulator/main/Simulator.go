@@ -7,9 +7,7 @@ import (
 	"time"
 )
 
-//TRUE when Talkative Mode, FALSE when Calm Mode
 var (
-	mode          = true
 	taskListMutex = &sync.Mutex{}
 	storageMutex  = &sync.Mutex{}
 )
@@ -24,6 +22,8 @@ const (
 )
 
 const (
+	//TRUE when Talkative Mode, FALSE when Calm Mode
+	Mode            = true
 	MaxTasks        = 255
 	StorageCapacity = 255
 	CeoSpeed        = 500
@@ -45,29 +45,44 @@ type product struct {
 	value int
 }
 
+func opToString(id int) string {
+	switch id {
+	case Addition:
+		return "+"
+	case Subtraction:
+		return "-"
+	case Multiplication:
+		return "*"
+	case Division:
+		return "/"
+	}
+	return ""
+}
+
+func calculate(arg1 int, arg2 int, op int) int {
+	switch op {
+	case Addition:
+		return arg1 + arg2
+	case Subtraction:
+		return arg1 - arg2
+	case Multiplication:
+		return arg1 * arg2
+	case Division:
+		return arg1 / arg2
+	}
+	return 0
+}
+
 //noinspection GoBoolExpressions
 func CEO(newTasks chan<- task) {
 	for {
+		//Sleeping for given time
 		time.Sleep(time.Millisecond * time.Duration(CeoSpeed))
-		arg1 := rand.Intn(MaxArgument)
-		arg2 := rand.Intn(MaxArgument) + 1
-		op := rand.Intn(MaxOperations)
-		newTask := task{arg1, arg2, op}
+		//Creating task
+		newTask := task{rand.Intn(MaxArgument), rand.Intn(MaxArgument-1) + 1, rand.Intn(MaxOperations)}
+		//Sending to task logger
 		newTasks <- newTask
-		var opName string
-		if mode {
-			switch newTask.op {
-			case Addition:
-				opName = "+"
-			case Subtraction:
-				opName = "-"
-			case Multiplication:
-				opName = "*"
-			case Division:
-				opName = "/"
-			}
-			fmt.Println("CEO made new task:", arg1, opName, arg2)
-		}
+		fmt.Println("CEO made new task:", newTask.arg1, opToString(newTask.op), newTask.arg2)
 	}
 }
 
@@ -111,27 +126,11 @@ func productLogger(newProducts <-chan product, boughtProducts <-chan product, lo
 func worker(id int, loggedTasks <-chan task, deletedTasks chan<- task, newProducts chan<- product) {
 	for {
 		time.Sleep(time.Millisecond * time.Duration(WorkerSpeed))
-		var result int
-		var opName string
 		task := <-loggedTasks
 		deletedTasks <- task
-		switch task.op {
-		case Addition:
-			result = task.arg1 + task.arg2
-			opName = "+"
-		case Subtraction:
-			result = task.arg1 - task.arg2
-			opName = "-"
-		case Multiplication:
-			result = task.arg1 * task.arg2
-			opName = "*"
-		case Division:
-			result = task.arg1 / task.arg2
-			opName = "/"
-		}
-		product := product{rand.Uint64(), result}
+		product := product{rand.Uint64(), calculate(task.arg1, task.arg2, task.op)}
 		newProducts <- product
-		fmt.Println("Worker", id, "created product", product.id, "from task", task.arg1, opName, task.arg2, "=", result)
+		fmt.Println("Worker", id, "created product", product.id, "from task", task.arg1, opToString(task.op), task.arg2, "=", product.value)
 	}
 }
 
@@ -141,8 +140,8 @@ func client(id int, loggedProducts <-chan product, boughtProducts chan<- product
 		time.Sleep(time.Millisecond * time.Duration(ClientSpeed))
 		result := <-loggedProducts
 		boughtProducts <- result
-		if mode {
-			fmt.Println("Client", id, "took product no", result.id, "from loggedProducts")
+		if Mode {
+			fmt.Println("Client", id, "took product no", result.id, "from storage")
 		}
 
 	}
