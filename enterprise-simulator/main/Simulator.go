@@ -26,9 +26,9 @@ const (
 const (
 	MaxTasks        = 255
 	StorageCapacity = 255
-	CeoSpeed        = 10
-	WorkerSpeed     = 10
-	ClientSpeed     = 10
+	CeoSpeed        = 500
+	WorkerSpeed     = 1000
+	ClientSpeed     = 1000
 	Workers         = 2
 	Clients         = 2
 	MaxArgument     = 1000
@@ -46,14 +46,14 @@ type product struct {
 }
 
 //noinspection GoBoolExpressions
-func CEO(taskList chan<- task) {
+func CEO(newTasks chan<- task) {
 	for {
 		time.Sleep(time.Millisecond * time.Duration(CeoSpeed))
 		arg1 := rand.Intn(MaxArgument)
 		arg2 := rand.Intn(MaxArgument) + 1
 		op := rand.Intn(MaxOperations)
 		newTask := task{arg1, arg2, op}
-		taskList <- newTask
+		newTasks <- newTask
 		var opName string
 		if mode {
 			switch newTask.op {
@@ -71,13 +71,50 @@ func CEO(taskList chan<- task) {
 	}
 }
 
+func taskLogger(newTasks <-chan task, deletedTasks <-chan task, loggedTasks chan<- task, taskLog *[]task) {
+	for {
+		taskListMutex.Lock()
+		select {
+		case newTask := <-newTasks:
+			*taskLog = append(*taskLog, newTask)
+			loggedTasks <- newTask
+		case deleteTask := <-deletedTasks:
+			for idx, val := range *taskLog {
+				if val == deleteTask {
+					*taskLog = append((*taskLog)[:idx], (*taskLog)[idx+1:]...)
+				}
+			}
+		}
+		taskListMutex.Unlock()
+	}
+}
+
+func productLogger(newProducts <-chan product, boughtProducts <-chan product, loggedProducts chan<- product, productLog *[]product) {
+	for {
+		storageMutex.Lock()
+		select {
+		case newProduct := <-newProducts:
+			*productLog = append(*productLog, newProduct)
+			loggedProducts <- newProduct
+		case boughtProduct := <-boughtProducts:
+			for idx, val := range *productLog {
+				if val == boughtProduct {
+					*productLog = append((*productLog)[:idx], (*productLog)[idx+1:]...)
+				}
+			}
+		}
+		storageMutex.Unlock()
+	}
+}
+
 //noinspection GoBoolExpressions
-func worker(id int, taskList <-chan task, storage chan<- product) {
+func worker(id int, loggedTasks <-chan task, deletedTasks chan<- task, newProducts chan<- product) {
 	for {
 		time.Sleep(time.Millisecond * time.Duration(WorkerSpeed))
 		var result int
 		var opName string
-		task := <-taskList
+		task := <-loggedTasks
+		deletedTasks <- task
 		switch task.op {
 		case Addition:
 			result = task.arg1 + task.arg2
@@ -93,35 +130,46 @@ func worker(id int, taskList <-chan task, storage chan<- product) {
 			opName = "/"
 		}
 		product := product{rand.Uint64(), result}
-		storageMutex.Lock()
-		storage <- product
-		storageMutex.Unlock()
+		newProducts <- product
 		fmt.Println("Worker", id, "created product", product.id, "from task", task.arg1, opName, task.arg2, "=", result)
 	}
 }
 
-func client(id int, storage <-chan product) {
+//noinspection GoBoolExpressions
+func client(id int, loggedProducts <-chan product, boughtProducts chan<- product) {
 	for {
 		time.Sleep(time.Millisecond * time.Duration(ClientSpeed))
-		result := <-storage
+		result := <-loggedProducts
+		boughtProducts <- result
 		if mode {
-			fmt.Println("Client", id, "took product no", result.id, "from storage")
+			fmt.Println("Client", id, "took product no", result.id, "from loggedProducts")
 		}
+
 	}
 }
 
 func main() {
-	taskList := make(chan task, MaxTasks)
-	storage := make(chan product, StorageCapacity)
-	//done := make(chan bool, 1)
+	newTasks := make(chan task, MaxTasks)
+	loggedTasks := make(chan task, MaxTasks)
+	deletedTasks := make(chan task, MaxTasks)
 
-	go CEO(taskList)
+	newProducts := make(chan product, StorageCapacity)
+	loggedProducts := make(chan product, StorageCapacity)
+	boughtProducts := make(chan product, StorageCapacity)
+
+	taskList := make([]task, 0)
+	productList := make([]product, 0)
+
+	go taskLogger(newTasks, deletedTasks, loggedTasks, &taskList)
+	go productLogger(newProducts, boughtProducts, loggedProducts, &productList)
+	go CEO(newTasks)
 	for i := 1; i <= Workers; i++ {
-		go worker(i, taskList, storage)
+		go worker(i, loggedTasks, deletedTasks, newProducts)
 	}
 	for i := 1; i <= Clients; i++ {
-		go client(i, storage)
+		go client(i, loggedProducts, boughtProducts)
 	}
 
-	time.Sleep(time.Second * 100)
+	done := make(chan bool, 1)
+	<-done
 }
