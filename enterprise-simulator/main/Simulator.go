@@ -5,36 +5,7 @@ import (
 	"fmt"
 	"math/rand"
 	"os"
-	"sync"
 	"time"
-)
-
-var (
-	Mode          = false
-	taskListMutex = &sync.Mutex{}
-	storageMutex  = &sync.Mutex{}
-)
-
-//operations
-const (
-	Addition       = 0
-	Subtraction    = 1
-	Multiplication = 2
-	Division       = 3
-	MaxOperations  = 4
-)
-
-const (
-	//TRUE when Talkative Mode, FALSE when Calm Mode
-	Delay           = 2000
-	MaxTasks        = 255
-	StorageCapacity = 255
-	CeoSpeed        = 3000
-	WorkerSpeed     = 5000
-	ClientSpeed     = 7000
-	Workers         = 1
-	Clients         = 1
-	MaxArgument     = 1000
 )
 
 type task struct {
@@ -93,7 +64,6 @@ func CEO(newTasks chan<- task) {
 
 func taskLogger(newTasks <-chan task, deletedTasks <-chan task, loggedTasks chan<- task, taskLog *[]task) {
 	for {
-		taskListMutex.Lock()
 		select {
 		case newTask := <-newTasks:
 			*taskLog = append(*taskLog, newTask)
@@ -105,13 +75,11 @@ func taskLogger(newTasks <-chan task, deletedTasks <-chan task, loggedTasks chan
 				}
 			}
 		}
-		taskListMutex.Unlock()
 	}
 }
 
 func productLogger(newProducts <-chan product, boughtProducts <-chan product, loggedProducts chan<- product, productLog *[]product) {
 	for {
-		storageMutex.Lock()
 		select {
 		case newProduct := <-newProducts:
 			*productLog = append(*productLog, newProduct)
@@ -123,7 +91,6 @@ func productLogger(newProducts <-chan product, boughtProducts <-chan product, lo
 				}
 			}
 		}
-		storageMutex.Unlock()
 	}
 }
 
