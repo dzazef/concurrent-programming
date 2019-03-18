@@ -47,14 +47,10 @@ func calculate(arg1 int, arg2 int, op int) int {
 	return 0
 }
 
-//noinspection GoBoolExpressions
 func CEO(newTasks chan<- task) {
 	for {
-		//Sleeping for given time
 		time.Sleep(time.Millisecond * time.Duration(CeoSpeed))
-		//Creating task
 		newTask := task{rand.Intn(MaxArgument), rand.Intn(MaxArgument-1) + 1, rand.Intn(MaxOperations)}
-		//Sending to task logger
 		newTasks <- newTask
 		if Mode {
 			fmt.Println("CEO made new task:", newTask.arg1, opToString(newTask.op), newTask.arg2)
@@ -94,7 +90,6 @@ func productLogger(newProducts <-chan product, boughtProducts <-chan product, lo
 	}
 }
 
-//noinspection GoBoolExpressions
 func worker(id int, loggedTasks <-chan task, deletedTasks chan<- task, newProducts chan<- product) {
 	for {
 		time.Sleep(time.Millisecond * time.Duration(WorkerSpeed))
@@ -108,7 +103,6 @@ func worker(id int, loggedTasks <-chan task, deletedTasks chan<- task, newProduc
 	}
 }
 
-//noinspection GoBoolExpressions
 func client(id int, loggedProducts <-chan product, boughtProducts chan<- product) {
 	for {
 		time.Sleep(time.Millisecond * time.Duration(ClientSpeed))
