@@ -1,13 +1,16 @@
 package main
 
 import (
+	"bufio"
 	"fmt"
 	"math/rand"
+	"os"
 	"sync"
 	"time"
 )
 
 var (
+	Mode          = false
 	taskListMutex = &sync.Mutex{}
 	storageMutex  = &sync.Mutex{}
 )
@@ -23,14 +26,14 @@ const (
 
 const (
 	//TRUE when Talkative Mode, FALSE when Calm Mode
-	Mode            = true
+	Delay           = 2000
 	MaxTasks        = 255
 	StorageCapacity = 255
-	CeoSpeed        = 500
-	WorkerSpeed     = 1000
-	ClientSpeed     = 1000
-	Workers         = 2
-	Clients         = 2
+	CeoSpeed        = 3000
+	WorkerSpeed     = 5000
+	ClientSpeed     = 7000
+	Workers         = 1
+	Clients         = 1
 	MaxArgument     = 1000
 )
 
@@ -82,7 +85,9 @@ func CEO(newTasks chan<- task) {
 		newTask := task{rand.Intn(MaxArgument), rand.Intn(MaxArgument-1) + 1, rand.Intn(MaxOperations)}
 		//Sending to task logger
 		newTasks <- newTask
-		fmt.Println("CEO made new task:", newTask.arg1, opToString(newTask.op), newTask.arg2)
+		if Mode {
+			fmt.Println("CEO made new task:", newTask.arg1, opToString(newTask.op), newTask.arg2)
+		}
 	}
 }
 
@@ -130,7 +135,9 @@ func worker(id int, loggedTasks <-chan task, deletedTasks chan<- task, newProduc
 		deletedTasks <- task
 		product := product{rand.Uint64(), calculate(task.arg1, task.arg2, task.op)}
 		newProducts <- product
-		fmt.Println("Worker", id, "created product", product.id, "from task", task.arg1, opToString(task.op), task.arg2, "=", product.value)
+		if Mode {
+			fmt.Println("Worker", id, "created product", product.id, "from task", task.arg1, opToString(task.op), task.arg2, "=", product.value)
+		}
 	}
 }
 
@@ -147,6 +154,15 @@ func client(id int, loggedProducts <-chan product, boughtProducts chan<- product
 	}
 }
 
+func viewHelp() {
+	fmt.Println("Possible commands:")
+	fmt.Println("help - view possible commands")
+	fmt.Println("talk - switch to talkative mode")
+	fmt.Println("tasklist - view tasklist")
+	fmt.Println("storage - view storage")
+	fmt.Println()
+}
+
 func main() {
 	newTasks := make(chan task, MaxTasks)
 	loggedTasks := make(chan task, MaxTasks)
@@ -159,6 +175,14 @@ func main() {
 	taskList := make([]task, 0)
 	productList := make([]product, 0)
 
+	scanner := bufio.NewScanner(os.Stdin)
+
+	viewHelp()
+	fmt.Println("Starting in", Delay, "ms...")
+	time.Sleep(time.Millisecond * Delay)
+	fmt.Println("Started.")
+	fmt.Println()
+
 	go taskLogger(newTasks, deletedTasks, loggedTasks, &taskList)
 	go productLogger(newProducts, boughtProducts, loggedProducts, &productList)
 	go CEO(newTasks)
@@ -169,6 +193,16 @@ func main() {
 		go client(i, loggedProducts, boughtProducts)
 	}
 
-	done := make(chan bool, 1)
-	<-done
+	for scanner.Scan() {
+		switch scanner.Text() {
+		case "help":
+			viewHelp()
+		case "talk":
+			Mode = true
+		case "tasklist":
+			fmt.Println("Active tasks:", taskList)
+		case "storage":
+			fmt.Println("Storage:", productList)
+		}
+	}
 }
