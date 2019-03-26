@@ -1,17 +1,32 @@
 with Ada.Text_IO; use Ada.Text_IO;
+with Ada.Numerics.discrete_Random;
 with Parameters;
 
 procedure Main is
-    type Boolean is (True, False);
 -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- --     
+    type Boolean is (True, False);
+    subtype Operator is Integer range 0 .. 3;
+-- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- 
+-- Random number generator    
+    subtype Rand_Gen_Range is Integer range 1 .. Parameters.Max_Arguments;
+    package Rand_Int is new Ada.Numerics.Discrete_Random(Rand_Gen_Range);
+    Generator : Rand_Int.Generator;
+
+    function Gen_Int (n: in Rand_Gen_Range) return Integer is
+    begin
+        return Rand_Int.Random(Generator) mod n;
+    end Gen_Int;
+-- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- --     
+-- Task record and task array declaration    
     type Task_Record is record
         Arg1    : Integer;
         Arg2    : Integer;
-        Op      : Integer;
+        Op      : Operator;
     end record;
 
     type Task_Array_Type is array (0 .. Parameters.Max_Tasks-1) of Task_Record;
 -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- 
+-- Declaration of protected FIFO of task records    
     protected type Task_FIFO_Type is
         entry Push (Item : in Task_Record);
         entry Pop (Item: out Task_Record);
@@ -48,13 +63,15 @@ procedure Main is
 
     Task_FIFO : Task_FIFO_Type;
 -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- 
+-- Declaration of product record
     type Product_Record is record
-        Id    : Integer;
-        Value    : Integer;
+        Id         : Integer;
+        Value      : Integer;
     end record;
 
     type Product_Array_Type is array (0 .. Parameters.Storage_Capacity-1) of Product_Record;
 -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- 
+-- Declaration of protected FIFO of product records    
     protected type Product_FIFO_Type is
         entry Push (Item : in Product_Record);
     entry Pop (Item: out Product_Record);
@@ -91,24 +108,53 @@ procedure Main is
 
     Product_FIFO : Product_FIFO_Type;
 -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- 
+    function Op_To_String(o: in Operator) return String is
+    begin
+        case o is
+            when 0 => return "+";
+            when 1 => return "-";
+            when 2 => return "*";
+            when 3 => return "div";
+        end case;
+    end Op_To_String;
+-- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- 
+    function Calculate(t: in Task_Record) return Integer is
+    begin
+        case t.Op is
+            when 0 => return t.Arg1 + t.Arg2;
+            when 1 => return t.Arg1 - t.Arg2;
+            when 2 => return t.Arg1 * t.Arg2;
+            when 3 => return t.Arg1 / t.Arg2;
+        end case;
+    end Calculate;
+-- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- 
     task type CEO_Type;
 
     task body CEO_Type is 
+        Arg1, Arg2, Op : Integer;
     begin
-        null;
+        loop
+            delay Parameters.Ceo_Speed;
+            Arg1 := Gen_Int(Parameters.Max_Arguments);
+            Arg2 := Gen_Int(Parameters.Max_Arguments);
+            Op := Gen_Int(4);
+            Task_FIFO.Push((Arg1, Arg2, Op));
+            Put_Line ("CEO made task:" & Integer'Image(Arg1) & " " & Op_To_String(Op) &  Integer'Image(Arg2));
+        end loop;
     end CEO_Type;
 
     CEO : CEO_Type;
 -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- 
-    task type Worker_Type is
-        entry Do_Task (Line : in String);
-    end Worker_Type;
-
-    task body Worker_Type is 
+    task type Worker_Type;
+    
+    task body Worker_Type is
+        Task_TODO : Task_Record;
     begin
-        accept Do_Task (Line : in String) do
-            Put_Line (Line);
-        end Do_Task;
+        loop
+            delay Parameters.Worker_Speed;
+            Task_FIFO.Pop(Task_TODO);
+            Put_Line ("Worker made task:" & Integer'Image(Task_TODO.Arg1) & " " & Op_To_String(Task_TODO.Op) & Integer'Image(Task_TODO.Arg2) & " with result:" & Integer'Image(Calculate(Task_TODO)));
+        end loop;
     end Worker_Type;
 
     type Worker_Array_Type is array (0 .. Parameters.Workers-1) of Worker_Type;
@@ -126,15 +172,5 @@ procedure Main is
 
     
 begin
-    Product_FIFO.Push ((1, 2));
-    Product_FIFO.Print_All;
-    Product_FIFO.Push ((2, 2));
-    Product_FIFO.Print_All;
-    Product_FIFO.Push ((3, 2));
-    Product_FIFO.Print_All;
-    Product_FIFO.Push ((4, 2));
-    Product_FIFO.Print_All;
-    Product_FIFO.Push ((5, 2));
-    Product_FIFO.Print_All;
-    Worker_Array(0).Do_Task("End.");
+    null;
 end Main;
