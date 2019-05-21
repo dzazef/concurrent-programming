@@ -9,109 +9,81 @@ import (
 )
 
 type task struct {
-	arg1 int
-	arg2 int
-	op   int
+	arg1	int
+	arg2 	int
+	op   	int
+	value 	int
 }
 
-type product struct {
-	id    uint64
-	value int
-}
-
-func opToString(id int) string {
-	switch id {
-	case Addition:
-		return "+"
-	case Subtraction:
-		return "-"
-	case Multiplication:
-		return "*"
-	case Division:
-		return "/"
-	}
-	return ""
-}
-
-func calculate(arg1 int, arg2 int, op int) int {
-	switch op {
-	case Addition:
-		return arg1 + arg2
-	case Subtraction:
-		return arg1 - arg2
-	case Multiplication:
-		return arg1 * arg2
-	case Division:
-		return arg1 / arg2
-	}
-	return 0
-}
-
-func CEO(newTasks chan<- task) {
+func CEO(newTaskWrite chan<- *taskWrite) {
 	for {
 		time.Sleep(time.Millisecond * time.Duration(CeoSpeed))
-		newTask := task{rand.Intn(MaxArgument), rand.Intn(MaxArgument-1) + 1, rand.Intn(MaxOperations)}
-		newTasks <- newTask
-		if Mode {
-			fmt.Println("CEO made new task:", newTask.arg1, opToString(newTask.op), newTask.arg2)
-		}
+		newTask := task{rand.Intn(MaxArgument), rand.Intn(MaxArgument-1) + 1, rand.Intn(MaxOperations), 0}
+		write := &taskWrite{newTask, make(chan bool)}
+		newTaskWrite <- write
+		<- write.resp
+		info("CEO: Made new task:", newTask.arg1, opToString(newTask.op), newTask.arg2)
 	}
 }
 
-func taskLogger(newTasks <-chan task, deletedTasks <-chan task, loggedTasks chan<- task, taskLog *[]task) {
+func Machine(taskToDo chan *taskWrite) {
 	for {
-		select {
-		case newTask := <-newTasks:
-			*taskLog = append(*taskLog, newTask)
-			loggedTasks <- newTask
-		case deleteTask := <-deletedTasks:
-			for idx, val := range *taskLog {
-				if val == deleteTask {
-					*taskLog = append((*taskLog)[:idx], (*taskLog)[idx+1:]...)
-				}
-			}
-		}
+		newTaskCalculateRequest := <- taskToDo
+		info("MACHINE: Got new task ", newTaskCalculateRequest.t.arg1, opToString(newTaskCalculateRequest.t.op), newTaskCalculateRequest.t.arg2)
+		newTaskCalculateRequest.t.value = calculate(newTaskCalculateRequest.t)
+		time.Sleep(time.Millisecond * time.Duration(MachineSpeed))
+		newTaskCalculateRequest.resp <- true
+		info("MACHINE: Done task ", newTaskCalculateRequest.t.arg1, opToString(newTaskCalculateRequest.t.op), newTaskCalculateRequest.t.arg2)
 	}
 }
 
-func productLogger(newProducts <-chan product, boughtProducts <-chan product, loggedProducts chan<- product, productLog *[]product) {
-	for {
-		select {
-		case newProduct := <-newProducts:
-			*productLog = append(*productLog, newProduct)
-			loggedProducts <- newProduct
-		case boughtProduct := <-boughtProducts:
-			for idx, val := range *productLog {
-				if val == boughtProduct {
-					*productLog = append((*productLog)[:idx], (*productLog)[idx+1:]...)
-				}
-			}
-		}
-	}
-}
-
-func worker(id int, loggedTasks <-chan task, deletedTasks chan<- task, newProducts chan<- product) {
+func Worker(ID int, patient bool, newTaskRead chan<- *taskRead, machines [][]chan *taskWrite, doneTaskWrite chan *taskWrite, increase chan *increaseTasksNumber) {
 	for {
 		time.Sleep(time.Millisecond * time.Duration(WorkerSpeed))
-		task := <-loggedTasks
-		deletedTasks <- task
-		product := product{rand.Uint64(), calculate(task.arg1, task.arg2, task.op)}
-		newProducts <- product
-		if Mode {
-			fmt.Println("Worker", id, "created product", product.id, "from task", task.arg1, opToString(task.op), task.arg2, "=", product.value)
+		//Send read request to TaskManager
+		read := &taskRead{make(chan task)}
+		newTaskRead <- read
+		result := <- read.value
+		info("WORKER("+getWorkerType(patient)+"): Taken task ", result.arg1, opToString(result.op), result.arg2, " from taskList")
+		//Create calculate request
+		calculateRequest := &taskWrite{result, make(chan bool)}
+		if patient {
+			info("WORKER(patient): Put task ", result.arg1, opToString(result.op), result.arg2, " in machine")
+			machines[result.op][rand.Intn(Machines)] <- calculateRequest
+			<- calculateRequest.resp
+		} else {
+			condition := true
+			for condition {
+				select {
+				case machines[result.op][rand.Intn(Machines)] <- calculateRequest:
+					info("WORKER(impatient(!)): Put task ", result.arg1, opToString(result.op), result.arg2, " in machine")
+					<- calculateRequest.resp
+					condition = false
+				default:
+					info("WORKER(impatient(!)): Looking for another machine with task ", result.arg1, opToString(result.op), result.arg2)
+				}
+				time.Sleep(time.Millisecond * time.Duration(ImpatientTime))
+			}
 		}
+		//Send to Storage
+		write := &taskWrite{calculateRequest.t, make(chan bool)}
+		doneTaskWrite <- write
+		<-write.resp
+		info("WORKER("+getWorkerType(patient)+"): Put task ", result.arg1, opToString(result.op), result.arg2, " in storage")
+		//Update number
+		set := &increaseTasksNumber{ID, make(chan bool)}
+		increase <- set
+		<- set.resp
 	}
 }
 
-func client(id int, loggedProducts <-chan product, boughtProducts chan<- product) {
+func Client(storageRead chan *taskRead) {
 	for {
 		time.Sleep(time.Millisecond * time.Duration(ClientSpeed))
-		result := <-loggedProducts
-		boughtProducts <- result
-		if Mode {
-			fmt.Println("Client", id, "took product no", result.id, "from storage")
-		}
-
+		read := &taskRead{make(chan task)}
+		storageRead <- read
+		result := <- read.value
+		info("CLIENT: Taken product ", result.arg1, opToString(result.op), result.arg2, " = ", result.value, " from storage.")
 	}
 }
 
@@ -121,38 +93,59 @@ func viewHelp() {
 	fmt.Println("talk - switch to talkative mode")
 	fmt.Println("tasklist - view tasklist")
 	fmt.Println("storage - view storage")
+	fmt.Println("statistic - view statistics for workers")
+	fmt.Println("workers - view worker types")
 	fmt.Println()
 }
 
+func showWorkerType(workerType map[int]bool) {
+	for k, v := range workerType {
+		fmt.Println("Worker", k, getWorkerType(v))
+	}
+}
+
 func main() {
-	newTasks := make(chan task, MaxTasks)
-	loggedTasks := make(chan task, MaxTasks)
-	deletedTasks := make(chan task, MaxTasks)
+	taskListWrite := make(chan *taskWrite)
+	taskListRead := make(chan *taskRead)
+	requestPrintTaskList := make(chan bool)
+	go TaskManager(taskListWrite, taskListRead, requestPrintTaskList)
+	go CEO(taskListWrite)
 
-	newProducts := make(chan product, StorageCapacity)
-	loggedProducts := make(chan product, StorageCapacity)
-	boughtProducts := make(chan product, StorageCapacity)
+	machineAddArray := make([]chan *taskWrite, 0)
+	machineMultiplyArray := make([]chan *taskWrite, 0)
+	machineSet := make([][]chan *taskWrite, 0)
+	for i := 1; i<= Machines; i++ {
+		newAddChannel := make(chan *taskWrite)
+		newMultiplyChannel := make(chan *taskWrite)
+		machineAddArray = append(machineAddArray, newAddChannel)
+		machineMultiplyArray = append(machineMultiplyArray, newMultiplyChannel)
+		go Machine(newAddChannel)
+		go Machine(newMultiplyChannel)
+	}
+	machineSet = append(machineSet, machineAddArray)
+	machineSet = append(machineSet, machineMultiplyArray)
 
-	taskList := make([]task, 0)
-	productList := make([]product, 0)
+	storageWrite := make(chan *taskWrite)
+	storageRead := make(chan *taskRead)
+	requestPrintStorage := make(chan bool)
+	go TaskManager(storageWrite, storageRead, requestPrintStorage)
+
+	increaseTaskNumberChan := make(chan *increaseTasksNumber)
+	requestPrintStatistic := make(chan bool)
+	go StatisticManager(increaseTaskNumberChan, requestPrintStatistic)
+
+	workerType := make(map[int]bool)
+	for i := 1; i <= Workers; i++ {
+		workerType[i] = randBool()
+		go Worker(i, workerType[i], taskListRead, machineSet, storageWrite, increaseTaskNumberChan)
+	}
+
+	for i := 1; i <= Clients; i++ {
+		go Client(storageRead)
+	}
 
 	scanner := bufio.NewScanner(os.Stdin)
-
 	viewHelp()
-	fmt.Println("Starting in", Delay, "ms...")
-	time.Sleep(time.Millisecond * Delay)
-	fmt.Println("Started.")
-	fmt.Println()
-
-	go taskLogger(newTasks, deletedTasks, loggedTasks, &taskList)
-	go productLogger(newProducts, boughtProducts, loggedProducts, &productList)
-	go CEO(newTasks)
-	for i := 1; i <= Workers; i++ {
-		go worker(i, loggedTasks, deletedTasks, newProducts)
-	}
-	for i := 1; i <= Clients; i++ {
-		go client(i, loggedProducts, boughtProducts)
-	}
 
 	for scanner.Scan() {
 		switch scanner.Text() {
@@ -161,9 +154,13 @@ func main() {
 		case "talk":
 			Mode = true
 		case "tasklist":
-			fmt.Println("Active tasks:", taskList)
+			requestPrintTaskList <- true
 		case "storage":
-			fmt.Println("Storage:", productList)
+			requestPrintStorage <-true
+		case "statistic":
+			requestPrintStatistic <-true
+		case "workers":
+			showWorkerType(workerType)
 		}
 	}
 }
