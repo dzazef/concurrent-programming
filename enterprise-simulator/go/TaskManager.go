@@ -3,12 +3,12 @@ package main
 import "fmt"
 
 type taskWrite struct {
-	t			task
-	resp		chan bool
+	t    *task
+	resp chan bool
 }
 
 type taskRead struct {
-	value		chan task
+	value chan *task
 }
 
 func taskWriteGuard(condition bool, c <-chan *taskWrite) <-chan *taskWrite {
@@ -25,13 +25,14 @@ func taskReadGuard(condition bool, c <-chan *taskRead) <-chan *taskRead {
 }
 
 func TaskManager(newTaskWrite chan *taskWrite, newTaskRead chan *taskRead, requestTaskList <-chan bool) {
-	taskList := make([]task, 0)
+	taskList := make([]*task, 0)
 	for {
 		select {
-		case read := <- taskReadGuard(len(taskList) > 0, newTaskRead):
-			read.value <- (taskList)[0]
+		case read := <-taskReadGuard(len(taskList) > 0, newTaskRead):
+			task := (taskList)[0]
 			taskList = (taskList)[1:]
-		case write := <- taskWriteGuard(len(taskList) < MaxTasks, newTaskWrite):
+			read.value <- task
+		case write := <-taskWriteGuard(len(taskList) < MaxTasks, newTaskWrite):
 			taskList = append(taskList, write.t)
 			write.resp <- true
 		case <-requestTaskList:
