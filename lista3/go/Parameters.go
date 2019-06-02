@@ -15,11 +15,11 @@ const (
 	Delay    = 2000
 	MaxTasks = 255
 
-	CeoSpeed           = 200
-	WorkerSpeed        = 2000
-	MachineSpeed       = 2000
-	ClientSpeed        = 3000
-	ServiceWorkerSpeed = 3000
+	CeoSpeed           = 20
+	WorkerSpeed        = 200
+	MachineSpeed       = 200
+	ClientSpeed        = 300
+	ServiceWorkerSpeed = 300
 
 	Workers        = 10
 	Clients        = 10
@@ -30,5 +30,5 @@ const (
 	WorkerImpatientDelay  = 200
 	ServiceImpatientDelay = 200
 
-	BrokeProbability = 1
+	BrokeProbability = 0.5
 )

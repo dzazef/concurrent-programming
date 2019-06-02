@@ -38,18 +38,15 @@ type Worker struct {
 }
 
 type ServiceWorker struct {
-	ID      int
-	request chan *ServiceRepairRequest
+	ID       int
+	request  chan *Machine
+	feedback chan int
 }
 
 type Service struct {
 	machineToRepair chan *Machine
+	feedback        chan int
 	workers         []ServiceWorker
-}
-
-type ServiceRepairRequest struct {
-	machineToRepair *Machine
-	done            chan bool
 }
 
 func (c *CEO) run() {
@@ -150,31 +147,27 @@ func (w *Worker) run() {
 	}
 }
 
-func (s *Service) run() {
+func getFeedback(feedback chan int) {
 	for {
-		machine := <-s.machineToRepair //Get machine to repair
-		if machine.inRepair {          //If it's already being repaired, ignore
-			info("SERVICE: Ignored request to repair machine", machine.ID)
-			continue
-		} else {
-			machine.inRepair = true
-			sWorkerID := rand.Intn(ServiceWorkers)
-			info("SERVICE: Accepted request to repair machine", machine.ID, "service worker", sWorkerID+1)
-			feedback := make(chan bool)
-			s.workers[sWorkerID].request <- &ServiceRepairRequest{
-				machine,
-				feedback,
+		f := <-feedback
+		info("SERVICE: Repaired (feedback from ", f, ")")
+	}
+}
+
+func (s *Service) run() {
+	go getFeedback(s.feedback)
+	for {
+		select {
+		case machine := <-s.machineToRepair:
+			if machine.inRepair { //If it's already being repaired, ignore
+				info("SERVICE: Ignored request to repair machine", machine.ID)
+				continue
+			} else {
+				machine.inRepair = true
+				sWorkerID := rand.Intn(ServiceWorkers)
+				info("SERVICE: Accepted request to repair machine", machine.ID, "service worker", sWorkerID+1)
+				s.workers[sWorkerID].request <- machine
 			}
-			<-feedback
-			info("SERVICE: Repaired (feedback from ", sWorkerID, ")")
-			//condition := true															//Uncomment to make Service impatient
-			//for condition {
-			//	select {
-			//	case s.workers[rand.Intn(ServiceWorkers)].machineToRepair <- machine:
-			//		condition = false
-			//	case <-time.After(time.Millisecond * time.Duration(ServiceImpatientDelay)):
-			//	}
-			//}
 		}
 	}
 }
@@ -182,10 +175,10 @@ func (s *Service) run() {
 func (sw *ServiceWorker) run() {
 	for {
 		request := <-sw.request
-		info("SERVICE WORKER", sw.ID, ": Repairing machine", request.machineToRepair.ID)
+		info("SERVICE WORKER", sw.ID, ": Repairing machine", request.ID)
 		time.Sleep(time.Millisecond * time.Duration(ServiceWorkerSpeed))
-		request.machineToRepair.backdoor <- true
-		request.done <- true
+		request.backdoor <- true
+		sw.feedback <- sw.ID
 	}
 }
 
@@ -261,15 +254,18 @@ func main() {
 	requestPrintStatistic := make(chan bool)
 	go StatisticManager(increaseTaskNumberChan, requestPrintStatistic)
 
+	feedback := make(chan int)
+
 	serviceWorkers := make([]ServiceWorker, 0)
 	for i := 1; i <= ServiceWorkers; i++ {
-		serviceWorker := ServiceWorker{i, make(chan *ServiceRepairRequest)}
+		serviceWorker := ServiceWorker{i, make(chan *Machine), feedback}
 		serviceWorkers = append(serviceWorkers, serviceWorker)
 		go serviceWorker.run()
 	}
 
 	service := Service{
 		make(chan *Machine),
+		feedback,
 		serviceWorkers,
 	}
 	go service.run()
